@@ -1,0 +1,119 @@
+name: Docker build test push
+run-name: Build (${{ inputs.scope_name }}) / ${{ inputs.build_push && 'Push' || 'Test' }}
+
+on:
+  workflow_call:
+    inputs:
+      scope_root:
+        required: true
+        type: string
+      scope_name:
+        required: true
+        type: string
+      build_push:
+        required: true
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      scope_root:
+        description: Scope root
+        required: true
+        default: src
+        type: string
+      scope_name:
+        description: Scope name
+        required: true
+        type: string
+      build_push:
+        description: Push
+        required: true
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  SCOPE_PATH: ${{ inputs.scope_root }}/${{ inputs.scope_name }}
+  IMAGE_PATH: ${{ github.repository }}/${{ inputs.scope_name }}
+
+jobs:
+  docker-build-test:
+    if: inputs.build_push != true
+    name: Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      -
+        name: Set up builder
+        uses: docker/setup-buildx-action@v2
+      -
+        name: Checkout repository
+        uses: actions/checkout@v3
+      -
+        name: Build test image
+        uses: docker/build-push-action@v3
+        with:
+          context: ${{ env.SCOPE_PATH }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PATH }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: false
+
+  docker-build-push:
+    if: inputs.build_push == true
+    name: Push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      -
+        name: Login registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      -
+        name: Get last image version
+        id: last-image
+        env:
+          LAST_IMAGE_URI: ${{ env.REGISTRY }}/${{ env.IMAGE_PATH }}:latest
+        run: |
+          docker pull $LAST_IMAGE_URI || exit 0
+          format='{{index .Config.Labels "org.opencontainers.image.version"}}'
+          echo "version=$(docker inspect $LAST_IMAGE_URI -f "$format")" >> $GITHUB_OUTPUT
+      -
+        name: Get next image version
+        id: next-image
+        env:
+          LAST_IMAGE_VER: ${{ steps.last-image.outputs.version }}
+        run: |
+          echo "version=$(awk -F. -v OFS=. '{$NF=$NF+1;print}' <<< ${LAST_IMAGE_VER:-1.0})" >> $GITHUB_OUTPUT
+      -
+        name: Set up emulator
+        uses: docker/setup-qemu-action@v2
+      -
+        name: Set up builder
+        uses: docker/setup-buildx-action@v2
+      -
+        name: Checkout repository
+        uses: actions/checkout@v3
+      -
+        name: Build push image
+        env:
+          NEXT_IMAGE_VER: ${{ steps.next-image.outputs.version }}
+        uses: docker/build-push-action@v3
+        with:
+          context: ${{ env.SCOPE_PATH }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PATH }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PATH }}:${{ env.NEXT_IMAGE_VER }}
+          labels: |
+            org.opencontainers.image.version=${{ env.NEXT_IMAGE_VER }}
+          platforms: |
+            linux/amd64
+            linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: true

@@ -1,0 +1,77 @@
+name: On scope root changes
+
+on:
+  pull_request:
+    paths:
+      - "src/*/**"
+  push:
+    paths:
+      - "src/*/**"
+    branches:
+      - "main"
+
+env:
+  SCOPE_ROOT: src
+
+jobs:
+  detect-scope-changes:
+    name: Detect scope changes
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+    outputs:
+      scope_root: ${{ env.SCOPE_ROOT }}
+      scope_names: ${{ steps.encode-scope-names.outputs.scope_names }}
+    steps:
+      -
+        name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      -
+        id: detect-scope-changes
+        name: Detect scope changes
+        run: |
+          paths=$(git diff --name-only "$BASE_SHA"...HEAD "$SCOPE_ROOT" | xargs dirname | sort -u)
+          names=$(bash ./.github/scripts/find-scope-names.sh "${paths[@]}" "$SCOPE_ROOT")
+          
+          if [[ -z "$names" ]]; then
+            echo "::warning::No scope changes were detected"
+          else
+            echo "scope_names=$(echo -n $names | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          fi
+      -
+        id: encode-scope-names
+        name: Encode scope names
+        env:
+          SCOPE_NAMES: ${{ steps.detect-scope-changes.outputs.scope_names }}
+        run: |
+          echo "scope_names=$(jq -nRc 'inputs | split(" ")' <<< "$SCOPE_NAMES")" >> $GITHUB_OUTPUT
+  matrix-build:
+    name: Build
+    needs: detect-scope-changes
+    if: ${{ needs.detect-scope-changes.outputs.scope_names != '[]' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        scope_name: ${{ fromJSON(needs.detect-scope-changes.outputs.scope_names) }}
+    uses: ./.github/workflows/docker-build-test-push.yaml
+    with:
+      scope_root: ${{ needs.detect-scope-changes.outputs.scope_root }}
+      scope_name: ${{ matrix.scope_name }}
+      build_push: ${{ github.event_name == 'push' }}
+
+  matrix-build-check:
+    name: Build success check
+    needs: matrix-build
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Full success check
+        if: ${{ needs.matrix-build.result != 'success' }}
+        run: |
+          echo "::error::Build has not been fully successful" && exit 1
