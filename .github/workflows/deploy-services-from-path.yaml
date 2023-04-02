@@ -1,0 +1,81 @@
+name: Deploy services from path
+run-name: Deploy services from path
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      service_path:
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  deploy:
+    name: Path (${{ inputs.service_path }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      -
+        name: Checkout repository
+        uses: actions/checkout@v3
+      -
+        name: Set up assets
+        run: |
+          env="unknown"
+          if [[ ${{ inputs.environment }} == "production" ]]; then
+            env="prd"
+          elif [[ ${{ inputs.environment }} == "staging" ]]; then
+            env="stg"
+          fi
+          
+          mkdir assets
+          cp -p "${{ inputs.service_path }}/docker-compose.yaml" assets/
+          cp -p "${{ inputs.service_path }}/etc/config/compose/docker-compose.$env.yaml" assets/
+          cp -p "${{ inputs.service_path }}/etc/config/dotenv/.env.$env" assets/
+      -
+        name: Set up SSH
+        run: |
+          install -m 600 -D /dev/null ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} > ~/.ssh/known_hosts
+      -
+        name: Set up Compose context
+        run: |
+          docker context create remote --docker "host=ssh://${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+          docker context use remote
+      -
+        name: Login registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.REPOS_AT }}
+      -
+        name: Deploy
+        env:
+          SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          env="unknown"
+          if [[ ${{ inputs.environment }} == "production" ]]; then
+            env="prd"
+          elif [[ ${{ inputs.environment }} == "staging" ]]; then
+            env="stg"
+          fi
+          
+          cd assets
+          
+          for var in $(echo "$SECRETS" | jq -r 'keys[]'); do
+            val=$(echo "$SECRETS" | jq -r ".[\"$var\"]")
+            export "$var"="$val"
+          done
+
+          envsubst < .env.$env > .env
+          docker compose -f "docker-compose.yaml" -f "docker-compose.$env.yaml" --env-file ".env" up --remove-orphans --force-recreate --quiet-pull --detach

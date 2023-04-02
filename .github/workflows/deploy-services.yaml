@@ -1,0 +1,93 @@
+name: Deploy services
+run-name: Deploy services (${{ inputs.environment }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+        required: true
+        description: Deploy on environment
+      be_app_repository:
+        type: string
+        default: "d-paniutycz/skeleton-be-app"
+        required: true
+        description: be-app repository name
+      be_app_release_tag:
+        type: string
+        default: "1.1"
+        required: true
+        description: be-app release tag
+      fe_app_repository:
+        type: string
+        default: "d-paniutycz/skeleton-fe-app"
+        required: true
+        description: fe-app repository name
+      fe_app_release_tag:
+        type: string
+        default: "1.1"
+        required: true
+        description: fe-app release tag
+      be_dms_deployment:
+        type: boolean
+        default: false
+        required: true
+        description: 1) be-dms deployment?
+      be_app_deployment:
+        type: boolean
+        default: true
+        required: true
+        description: 2) be-app deployment?
+      fe_app_deployment:
+        type: boolean
+        default: false
+        required: true
+        description: 3) fe-app deployment?
+
+concurrency:
+  group: 'deploy-services'
+  cancel-in-progress: false
+
+jobs:
+  deploy-be-dms:
+    if: always() && inputs.be_dms_deployment == true
+    name: Deploy (be-dms)
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-services-from-path.yaml
+    with:
+      environment: ${{ inputs.environment }}
+      service_path: 'services/be/dms'
+    secrets: inherit
+
+  deploy-be-app:
+    if: always() && inputs.be_app_deployment == true
+    needs: deploy-be-dms
+    name: Deploy (be-app)
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy-services-from-release.yaml
+    with:
+      repository: ${{ inputs.be_app_repository }}
+      environment: ${{ inputs.environment }}
+      release_tag: ${{ inputs.be_app_release_tag }}
+    secrets: inherit
+
+  deploy-fe-app:
+    if: always() && inputs.fe_app_deployment == true
+    needs: deploy-be-app
+    name: Deploy (fe-app)
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Download artifacts
+        run: echo "fe-app"

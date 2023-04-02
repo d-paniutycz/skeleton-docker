@@ -1,0 +1,17 @@
+version: '3.9'
+
+services:
+
+  pg1:
+    profiles: ['stg']
+    image: bitnami/postgresql:15.2.0-debian-11-r14
+    environment:
+      POSTGRES_DATABASE: ${DMS_PG1_DATABASE}
+      POSTGRES_USERNAME: ${DMS_PG1_PRI_USERNAME}
+      POSTGRES_PASSWORD: ${DMS_PG1_PRI_PASSWORD}
+    networks:
+      - default
+
+networks:
+  default:
+    name: ${COMPOSE_PROJECT_NAME}

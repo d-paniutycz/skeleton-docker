@@ -18,7 +18,7 @@ on:
       scope_root:
         description: Scope root
         required: true
-        default: src
+        default: images
         type: string
       scope_name:
         description: Scope name

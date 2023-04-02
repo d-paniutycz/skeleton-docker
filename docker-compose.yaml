@@ -1,0 +1,40 @@
+version: '3.9'
+
+networks:
+  my-network:
+    name: dupa
+    driver: bridge
+
+services:
+
+  base-nginx:
+    build: src/base/nginx
+    image: ghcr.io/d-paniutycz/skeleton-docker/base/nginx:1.0
+    environment:
+      NGINX_WORKER_PROCESSES: 1
+
+  base-php-fpm:
+    build: src/base/php-fpm
+    image: ghcr.io/d-paniutycz/skeleton-docker/base/php-fpm:1.0
+
+  be-app-web:
+    build: src/be/app/web
+    image: ghcr.io/d-paniutycz/skeleton-docker/be/app/web:1.0
+    environment:
+      NGINX_WORKER_PROCESSES: 1
+      APP_PHP_HOST: app-php-rep
+      APP_PHP_PORT: 80
+      APP_HOME_DIR: /var/www/html/skeleton
+      APP_GATE_WEB: etc/gate/web.php
+    ports:
+      - "80:80"
+    networks:
+      - my-network
+
+  be-app-php-live:
+    build: src/be/app/php/live
+    image: ghcr.io/d-paniutycz/skeleton-docker/be/app/php/live:1.0
+
+  be-app-php-tech:
+    build: src/be/app/php/tech
+    image: ghcr.io/d-paniutycz/skeleton-docker/be/app/php/tech:1.0

@@ -1,0 +1,75 @@
+name: Deploy services from release
+run-name: Deploy services from release
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      release_tag:
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  deploy:
+    name: Release (${{ inputs.release_tag }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      -
+        name: Download artifacts
+        run: |
+          gh release download --repo ${{ inputs.repository }} ${{ inputs.release_tag }}
+          ls -la
+          mkdir assets && tar -xzf environment.tar.gz -C assets
+        env:
+          GH_TOKEN: ${{ secrets.REPOS_AT }}
+      -
+        name: Set up SSH
+        run: |
+          install -m 600 -D /dev/null ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} > ~/.ssh/known_hosts
+      -
+        name: Set up Compose context
+        run: |
+          docker context create remote --docker "host=ssh://${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+          docker context use remote
+      -
+        name: Login registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.REPOS_AT }}
+      -
+        name: Deploy
+        env:
+          SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          env="unknown"
+          if [[ ${{ inputs.environment }} == "production" ]]; then
+            env="prd"
+          elif [[ ${{ inputs.environment }} == "staging" ]]; then
+            env="stg"
+          fi
+          
+          cd assets
+          
+          for var in $(echo "$SECRETS" | jq -r 'keys[]'); do
+            val=$(echo "$SECRETS" | jq -r ".[\"$var\"]")
+            export "$var"="$val"
+          done
+
+          envsubst < .env.$env > .env
+          docker compose -f "docker-compose.yaml" -f "docker-compose.$env.yaml" --env-file ".env" up --remove-orphans --force-recreate --quiet-pull --detach

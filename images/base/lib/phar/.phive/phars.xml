@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phive xmlns="https://phar.io/phive">
+    <!--  Utility tools  -->
+    <phar name="composer" version="2.5.4" location="./utility/composer"/>
+    <!--  Quality tools  -->
+    <phar name="phpstan" version="1.10.6" location="./quality/phpstan"/>
+    <phar name="phpmd" version="2.13.0" location="./quality/phpmd"/>
+    <phar name="psalm" version="5.8.0" location="./quality/psalm"/>
+    <phar name="phpcs" version="3.7.2" location="./quality/phpcs"/>
+</phive>

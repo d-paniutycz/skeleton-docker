@@ -1,0 +1,8 @@
+version: '3.9'
+
+services:
+
+  pg1:
+    restart: on-failure
+    deploy:
+      mode: global
